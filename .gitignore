@@ -1,0 +1,6 @@
+.tmp.drivedownload
+data/raw data/genome-scores.csv
+data/raw data/ratings.csv
+data/data preparation/dataset frac=0.33, ratio=4/train_set.csv
+data/data preparation/MovieLens_data_preparation.py
+application data/database.db
