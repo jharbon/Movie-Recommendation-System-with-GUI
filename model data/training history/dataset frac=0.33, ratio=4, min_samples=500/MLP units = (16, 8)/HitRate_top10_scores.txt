@@ -1,0 +1,12 @@
+embed_dim = 8, lr = 0.001, batch_size = 1024, score = 49.90%
+embed_dim = 8, lr = 0.0001, batch_size = 4096, score = 50.99%
+embed_dim = 8, lr = 0.001, batch_size = 4096, score = 50.82%
+embed_dim = 8, lr = 0.0001, batch_size = 8192, score = 52.08%
+embed_dim = 8, lr = 0.001, batch_size = 8192, score = 51.83%
+embed_dim = 8, lr = 0.0001, batch_size = 16384, score = 50.96%
+embed_dim = 8, lr = 0.001, batch_size = 16384, score = 50.85%
+
+
+embed_dim = 16, lr = 0.0001, batch_size = 8192, score = 52.31%
+embed_dim = 16, lr = 0.001, batch_size = 8192, score = 49.83%
+embed_dim = 16, lr = 0.0001, batch_size = 16384, score = 50.83%

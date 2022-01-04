@@ -8,7 +8,8 @@ from PIL import Image, ImageTk
     
 import numpy as np
 import pandas as pd    
-import sqlite3 as sql    
+import sqlite3 as sql
+import requests    
 
 from os import chdir, remove
 from os.path import dirname, abspath, isfile
@@ -24,6 +25,8 @@ from NeuMF_architecture import NeuMF
 from training_and_evaluation import train
 from sklearn.preprocessing import LabelEncoder
 from tensorflow.keras.models import load_model
+
+from config import RAPID_API_KEY
 
 # Set values for window dimensions here since some frames will be resized based on these dimensions
 WINDOW_WIDTH = 1150
@@ -78,10 +81,16 @@ class App(tk.Tk):
                            username VARCHAR(20),
                            user_ID INT,
                            movie_ID INT
+                           );
+                           
+                           CREATE TABLE user_bucket_list(
+                           username VARCHAR(20),
+                           user_ID INT,
+                           movie_ID INT
                            );""")
             
         # Read train_set csv file in as chunks
-        train_set_chunks = pd.read_csv("data/data preparation/dataset frac=0.33, ratio=4/train_set.csv",
+        train_set_chunks = pd.read_csv("data/data preparation/dataset frac=0.33, ratio=4, min_samples=100/train_set.csv",
                                        chunksize = 50000, iterator=True)
             
         # Read chunks of csv into a new SQL table
@@ -95,7 +104,7 @@ class App(tk.Tk):
         c.execute("ALTER TABLE train_set ADD PRIMARY KEY (user_ID, movie_ID)")    
             
         # Read movie_info csv file in as chunks
-        movie_info_chunks = pd.read_csv("data/data preparation/dataset frac=0.33, ratio=4/movie_info.csv",
+        movie_info_chunks = pd.read_csv("data/data preparation/dataset frac=0.33, ratio=4, min_samples=100/movie_info.csv",
                                        chunksize = 1000, iterator=True)
             
         # Read chunks of csv into a new SQL table
@@ -137,12 +146,12 @@ class LoginPage(tk.Frame):
         
         # Text which welcomes a user
         welcome_label = tk.Label(self, text = "Welcome to the movie recommender!")
-        welcome_label.grid(row = 0, column = 0, columnspan = 2, pady = 10)
+        welcome_label.grid(row = 0, column = 0, columnspan = 2, pady = (150, 10))
 
         # Text which instructs user what to do
         welcome_label = tk.Label(self, text = 
-                                 "Please select your user name or\n" 
-                                 "create a new user profile")
+                                 "Please select your user name\n" 
+                                 "or create a new user profile")
         welcome_label.grid(row = 1, column = 0, columnspan = 2, pady = 10)                 
         
         # Add buttons for user select, user create or user edit
@@ -160,7 +169,7 @@ class LoginPage(tk.Frame):
         user_edit_button = tk.Button(self, text = "Edit User", borderwidth = BTN_BORD_WIDTH,
                                        width = 30, bg = "grey", font = master.button_font,
                                        command = lambda: master.change_frame(EditUserPage))
-        user_edit_button.grid(row = 4, column = 0, columnspan = 2, pady = 10)
+        user_edit_button.grid(row = 4, column = 0, columnspan = 2, pady = (10, 150))
         
         
         # Configure frame to horizontally
@@ -168,31 +177,18 @@ class LoginPage(tk.Frame):
         self.grid_columnconfigure(0, weight = 1)
         self.grid_columnconfigure(1, weight = 1)
         
-        
 class SelectUserPage(tk.Frame):
     def __init__(self, master):
         tk.Frame.__init__(self, master)
         
         # Create label which instructs user how to select their profile
         instruct_label = tk.Label(self, text = "Enter your username from the records below")
-        instruct_label.grid(row = 0, column = 0, columnspan = 2, pady = 10)
+        instruct_label.grid(row = 0, column = 0, columnspan = 2, pady = (120, 10))
         
         # Create text entry box with which the user can enter their username
-        username_entry_label = tk.Label(self, text = "Username").grid(row = 1, column = 0, padx = 5)
+        username_entry_label = tk.Label(self, text = "Username").grid(row = 1, column = 0, padx = 5, pady = 10)
         self.username_entry = tk.Entry(self, width = 30)
-        self.username_entry.grid(row = 1, column = 1)
-        
-        # Create a button which can be used to select a user once username has been entered
-        select_button = tk.Button(self, text = "Select User", width = 30, borderwidth = BTN_BORD_WIDTH,
-                                  bg = "grey", font = master.button_font,
-                                  command = lambda: self.select_user(master))
-        select_button.grid(row = 3, column = 0, columnspan = 2, pady = (5, 5))
-        
-        # Create a back button
-        back_button = tk.Button(self, text = "Back", width = 30, borderwidth = BTN_BORD_WIDTH,
-                                bg = "grey", font = master.button_font,
-                                command = lambda: master.change_frame(LoginPage))
-        back_button.grid(row = 4, column = 0, columnspan = 2, pady = 5)
+        self.username_entry.grid(row = 1, column = 1, pady = 10)
         
         # Store user records in a variable
         conn = sql.connect("application data/database.db")
@@ -232,7 +228,18 @@ class SelectUserPage(tk.Frame):
         for record in records:
             users_tree.insert(parent = "", index = "end", iid = count, text = "", values = (record[0], record[1]))
             count += 1
-            
+        
+        # Create a button which can be used to select a user once username has been entered
+        select_button = tk.Button(self, text = "Select User", width = 30, borderwidth = BTN_BORD_WIDTH,
+                                  bg = "grey", font = master.button_font,
+                                  command = lambda: self.select_user(master))
+        select_button.grid(row = 3, column = 0, columnspan = 2, pady = (5, 5))
+        
+        # Create a back button
+        back_button = tk.Button(self, text = "Back", width = 30, borderwidth = BTN_BORD_WIDTH,
+                                bg = "grey", font = master.button_font,
+                                command = lambda: master.change_frame(LoginPage))
+        back_button.grid(row = 4, column = 0, columnspan = 2, pady = (5, 120))
         
         # Configure frame to horizontally centre widgets
         self.grid_columnconfigure(0, weight = 1)
@@ -275,13 +282,13 @@ class CreateUserPage(tk.Frame):
         
         # Create label which instructs user how to create their profile
         instruct_label = tk.Label(self, text = "Please create a username")
-        instruct_label.grid(row = 0, column = 0, columnspan = 2, padx = (10, 33), pady = 10)
+        instruct_label.grid(row = 0, column = 0, columnspan = 2, padx = (20, 30), pady = (220, 10))
         
         # Create text entry box with which the user can enter their chosen username
         username_entry_label = tk.Label(self, text = "Username")
-        username_entry_label.grid(row = 1, column = 0)
+        username_entry_label.grid(row = 1, column = 0, padx = 6)
         self.username_entry = tk.Entry(self, width = 30)
-        self.username_entry.grid(row = 1, column = 1)
+        self.username_entry.grid(row = 1, column = 1, padx = 6)
         
         # Create a button which can be used to select a user once username has been entered
         create_button = tk.Button(self, text = "Create User", width = 30, borderwidth = BTN_BORD_WIDTH,
@@ -293,7 +300,7 @@ class CreateUserPage(tk.Frame):
         back_button = tk.Button(self, text = "Back", width = 30, borderwidth = BTN_BORD_WIDTH,
                                 bg = "grey", font = master.button_font,
                                 command = lambda: master.change_frame(LoginPage))
-        back_button.grid(row = 3, column = 0, columnspan = 2, pady = 5)
+        back_button.grid(row = 3, column = 0, columnspan = 2, pady = (5, 220))
         
         # Configure frame to horizontally centre widgets
         self.grid_columnconfigure(0, weight = 1)
@@ -369,37 +376,19 @@ class EditUserPage(tk.Frame):
         instruct_label = tk.Label(self, text = "Enter the username for the profile " + 
                                                "you wish to edit. You can then either\n" +
                                                "enter a new username and submit or you " +
-                                               "can simply click delete to remove\n" +
-                                               "your user profile from the records.")
-        instruct_label.grid(row = 0, column = 0, columnspan = 2, pady = 10)
+                                               "can simply click delete to\n" +
+                                               "remove your user profile from the records.")
+        instruct_label.grid(row = 0, column = 0, columnspan = 2, pady = (70, 10))
         
         # Create text entry box with which the user can enter their ID
-        username_entry_label = tk.Label(self, text = "Username").grid(row = 1, column = 0, padx = 3)
+        username_entry_label = tk.Label(self, text = "Username").grid(row = 1, column = 0, padx = 3, pady = (15, 5))
         self.username_entry = tk.Entry(self, width = 30)
-        self.username_entry.grid(row = 1, column = 1)
+        self.username_entry.grid(row = 1, column = 1, pady = (15, 5))
         
         # Create text entry box with which the user can enter their new username
-        new_username_entry_label = tk.Label(self, text = "New Username").grid(row = 2, column = 0, padx = 3)
+        new_username_entry_label = tk.Label(self, text = "New Username").grid(row = 2, column = 0, padx = 3, pady = (5, 15))
         self.new_username_entry = tk.Entry(self, width = 30)
-        self.new_username_entry.grid(row = 2, column = 1)
-        
-        # Create a button which can be used to change username once original and new have been entered
-        change_username_button = tk.Button(self, text = "Change Username", width = 30, borderwidth = BTN_BORD_WIDTH,
-                                           bg = "grey", font = master.button_font,
-                                           command = lambda: self.change_username(master))
-        change_username_button.grid(row = 4, column = 0, columnspan = 2, pady = (5, 5))
-        
-        # Create a button which can be used to delete a user profile once a username has been entered
-        delete_user_button = tk.Button(self, text = "Delete User", width = 30, borderwidth = BTN_BORD_WIDTH,
-                                       bg = "grey", font = master.button_font,
-                                command = lambda: self.delete_user(master))
-        delete_user_button.grid(row = 5, column = 0, columnspan = 2, pady = 5)
-        
-        # Create a back button
-        back_button = tk.Button(self, text = "Back", width = 30, borderwidth = BTN_BORD_WIDTH,
-                                bg = "grey", font = master.button_font,
-                                command = lambda: master.change_frame(LoginPage))
-        back_button.grid(row = 6, column = 0, columnspan = 2, pady = 5)
+        self.new_username_entry.grid(row = 2, column = 1, pady = (5, 15))
         
         # Store user records in a variable
         conn = sql.connect("application data/database.db")
@@ -439,6 +428,24 @@ class EditUserPage(tk.Frame):
         for record in records:
             users_tree.insert(parent = "", index = "end", iid = count, text = "", values = (record[0], record[1]))
             count += 1
+        
+        # Create a button which can be used to change username once original and new have been entered
+        change_username_button = tk.Button(self, text = "Change Username", width = 30, borderwidth = BTN_BORD_WIDTH,
+                                           bg = "grey", font = master.button_font,
+                                           command = lambda: self.change_username(master))
+        change_username_button.grid(row = 4, column = 0, columnspan = 2, pady = (5, 5))
+        
+        # Create a button which can be used to delete a user profile once a username has been entered
+        delete_user_button = tk.Button(self, text = "Delete User", width = 30, borderwidth = BTN_BORD_WIDTH,
+                                       bg = "grey", font = master.button_font,
+                                command = lambda: self.delete_user(master))
+        delete_user_button.grid(row = 5, column = 0, columnspan = 2, pady = 5)
+        
+        # Create a back button
+        back_button = tk.Button(self, text = "Back", width = 30, borderwidth = BTN_BORD_WIDTH,
+                                bg = "grey", font = master.button_font,
+                                command = lambda: master.change_frame(LoginPage))
+        back_button.grid(row = 6, column = 0, columnspan = 2, pady = (5, 80))
         
         # Configure frame to horizontally centre widgets
         self.grid_columnconfigure(0, weight = 1)
@@ -579,18 +586,19 @@ class HomePage(tk.Frame):
         logout_button.grid(row = 0, column = 5, padx = MENU_BTN_PADX, pady = MENU_BTN_PADY)
         
         info_label = tk.Label(self,
-                              text = "Hello " + master.username + "! Welcome to the movie recommendation system. Before\n" +
-                                     "you can ask the system to recommend some movies, you must first head\n" +
-                                     "over to the History page and tell us what you have already seen. Once you\n" +
-                                     "have added some movies, we'll save your history in our database and it will\n" +
-                                     "be added to the training set once you have clicked 'Finish'.\n\n"
-                                     "To achieve the best results, NeuMF is trained on approximately 40 million\n" +
-                                     "rows of data along with the data you provide. This means that, with the training\n" +
-                                     "configurations we have decided on, you will have to wait approximately 20 minutes\n" +
-                                     "for NeuMF to finish training. To start the training, head to the History page and\n" +
-                                     "click the 'Train' button. do not leave that page until you see the text\n" + 
-                                     "'Training finished!' appear. Upon finishing training, you can go to the\n" +
-                                     "Recommend page and click 'Recommend Movies'. Enjoy!")
+                              text = "Hello " + master.username + "! Welcome to the movie recommendation system. Before " +
+                                     "you can ask the system to recommend movies, you must first head " +
+                                     "over to the History page and tell us what you have already seen. Once you " +
+                                     "have added some movies, we'll save your history in our database and it will " +
+                                     "be added to the training set after you have clicked 'Finish'.\n\n"
+                                     "To achieve the best results, NeuMF is trained on approximately 40 million " +
+                                     "rows of data along with the data you provide. This means that, with the training " +
+                                     "configurations we have decided on, you will have to wait approximately 15 minutes " +
+                                     "for NeuMF to finish training. To start the training, head to the History page and " +
+                                     "click the 'Train' button. Upon finishing the training, you can go to the " +
+                                     "Recommend page, optionally select a genre and click 'Recommend Movies'. Bucket List " +
+                                     "displays movies stored in your own personal bucket list. Enjoy!",
+                                     wraplength = round(WINDOW_WIDTH/2))
         
         info_label.grid(row = 1, column = 0, columnspan = 6, pady = 15)
         
@@ -647,12 +655,11 @@ class BucketListPage(tk.Frame):
         
         # Create text which instructs user how to use this page
         info_label = tk.Label(self, 
-                              text = "This page displays all of the recommended movies you have decided to add to your\n" +
-                              "personal movie bucket list! To edit a movie in the list, you can enter its corresponding\n" +
-                              "movie ID and then choose to either remove it if you are no longer interested, or move it to\n" +
-                              "your history if you have now seen it. Upon addition to your history, NeuMF can be retrained.\n" +
-                              "However, for best results we advise that you only choose to retrain after addition of 10 or\n" +
-                              "more movies.")
+                              text = "This page displays all of the recommended movies you have decided to add to your " +
+                              "personal bucket list! To edit a movie in the list, you can enter its corresponding ID " +
+                              "and then choose to either delete it if you are no longer interested, or add it to " +
+                              "your history if you have now seen it. Upon addition to your history, NeuMF can be retrained.",
+                              wraplength = round(WINDOW_WIDTH/2))
         info_label.grid(row = 1, column = 2, columnspan = 3, pady = 20)
         
         # Create movie ID label and text entry box
@@ -662,15 +669,15 @@ class BucketListPage(tk.Frame):
         self.movie_ID_text_entry.grid(row = 2, column = 3, columnspan = 2, padx = (7, 5), pady = 15)
         
         # Create a button for removing a movie
-        remove_button = tk.Button(self, text = "Remove", width = 20, borderwidth = BTN_BORD_WIDTH,
+        delete_button = tk.Button(self, text = "Delete Movie", width = 20, borderwidth = BTN_BORD_WIDTH,
                                   bg = "grey", font = master.button_font,
-                                  command = lambda: self.remove_movie(master))
-        remove_button.grid(row = 3, column = 2, columnspan =  2, pady = 10)
+                                  command = lambda: self.delete_movie(master))
+        delete_button.grid(row = 3, column = 2, columnspan =  2, pady = 10)
         
         # Create a button for adding a movie to history
-        add_history_button = tk.Button(self, text = "Move to History", width = 20, borderwidth = BTN_BORD_WIDTH,
+        add_history_button = tk.Button(self, text = "Add to History", width = 20, borderwidth = BTN_BORD_WIDTH,
                                        bg = "grey", font = master.button_font,
-                                       command = lambda: self.move_to_history(master))
+                                       command = lambda: self.add_to_history(master))
         add_history_button.grid(row = 3, column = 3, columnspan = 2, pady = 10)
         
         conn = sql.connect("application data/database.db")
@@ -744,7 +751,7 @@ class BucketListPage(tk.Frame):
         
         return True
         
-    def remove_movie(self, master):
+    def delete_movie(self, master):
         ID_valid = self.check_ID(master)
         
         if not ID_valid:
@@ -769,7 +776,7 @@ class BucketListPage(tk.Frame):
         
         master.change_frame(BucketListPage)
     
-    def move_to_history(self, master):
+    def add_to_history(self, master):
         ID_valid = self.check_ID(master)
         
         if not ID_valid:
@@ -848,43 +855,58 @@ class HistoryPage(tk.Frame):
         records = c.fetchall()
         conn.close()
         
+        # Create label and text entry box for movie IDs
+        self.movie_ID_entry_label = tk.Label(self, text = "Movie ID")
+        self.movie_ID_entry_label.grid(row = 2, column = 2, columnspan = 2, pady = 15)
+        self.movie_ID_text_entry = tk.Entry(self, width = 20)
+        self.movie_ID_text_entry.grid(row = 2, column = 3, columnspan = 2, pady = 15)
+        
         # Create button for editing history
         self.edit_history_button = tk.Button(self, text = "Edit History", borderwidth = BTN_BORD_WIDTH,
                                         bg = "grey", font = master.button_font,
                                         width = 20, command = lambda: self.create_edit_history(master))
-        self.edit_history_button.grid(row = 2, column = 2, columnspan = 2, padx = (0, 10), pady = 15)
+        self.edit_history_button.grid(row = 3, column = 2, padx = (0, 10), pady = 15)
+        
+        # Create button for deleting a movie from history and training set based on the entered movie ID
+        self.delete_movie_button = tk.Button(self, text = "Delete Movie", borderwidth = BTN_BORD_WIDTH,
+                                        bg = "grey", font = master.button_font,
+                                        width = 20, command = lambda: self.delete_movie(master))
+        self.delete_movie_button.grid(row = 3, column = 3, padx = (0, 10), pady = 15)
         
         # Create button for training NeuMF network
         self.train_NeuMF_button = tk.Button(self, text = "Train", borderwidth = BTN_BORD_WIDTH, width = 20,
                                        bg = "grey", font = master.button_font,
                                        command = lambda: self.train_NeuMF(master))
-        self.train_NeuMF_button.grid(row = 2, column = 3, columnspan = 2, padx = (10, 0), pady = 15)
+        self.train_NeuMF_button.grid(row = 3, column = 4, padx = (10, 0), pady = 15)
         
         # Create a frame to pack a Treeview widget into
         self.tree_frame = tk.Frame(self, width = 1000, height = round(WINDOW_HEIGHT/2))
-        self.tree_frame.grid(row = 3, column = 0, columnspan = 7, pady = 15)
+        self.tree_frame.grid(row = 4, column = 0, columnspan = 7, pady = 15)
         
         # Create widgets for creation of user history if number of movies is less than 20
         if len(records) < 20:
             info_label = tk.Label(self,
-                                  text = "It appears that you have not added enough movies to your history yet. Scroll\n" +
-                                  "through the films below until you see a movie you have watched. Type the movie ID\n" +
-                                  "into the text box and click 'Add Movie'. Repeat this process until you have added\n" +
-                                  "at least 20 movies. The counter below keeps track of how many you have added so far.\n" +
-                                  "Make sure that you click 'Finish' once you have selected at least 20 movies. As a\n" +
-                                  "final note, if you reach the bottom of the movies list and have not added at least\n" +
-                                  "20, you can simply click the 'History' button at the top and refresh the list.")
+                                  text = "It appears that you have not added enough movies to your history yet. Scroll " +
+                                  "through the films below until you see a movie you have watched. Type the movie ID " +
+                                  "into the text box and click 'Add Movie'. Repeat this process until you have added " +
+                                  "at least 20 movies. The counter below keeps track of how many you have added so far. " +
+                                  "Make sure that you click 'Finish' once you have selected at least 20 movies. As a " +
+                                  "final note, if you reach the bottom of the movies list and have not added at least " +
+                                  "20, you can simply click the 'History' button at the top and refresh the list.",
+                                  wraplength = round(WINDOW_WIDTH/2))
             
             info_label.grid(row = 1, column = 2, columnspan = 3, pady = 20)
-            self.create_edit_history(master)
+            self.create_edit_history(master, history_creation = True)
         
         # Display user history if it exists and number of movies is greater than or equal to 20   
         else:
             info_label = tk.Label(self, 
-                              text = "This page displays all of the movies in your history. If you change your mind\n" +
-                                      "and want to add more, you can click 'Edit History'. Once you have added your\n" +
-                                      "history to the training set via the 'Finish' button, you can click 'Train' and\n" +
-                                      "wait until you see 'Training finished!' appear.")
+                              text = "This page displays all of the movies in your history. If you change your mind " +
+                                      "and want to add more, you can click 'Edit History'. Additionally, you can delete a " +
+                                      "movie from your history via its ID and 'Delete Movie'. Once you have added your " +
+                                      "history to the training set with the 'Finish' button, you can click 'Train' and " +
+                                      "wait until you see 'Training finished!' appear.",
+                                      wraplength = round(WINDOW_WIDTH/2))
             info_label.grid(row = 1, column = 2, columnspan = 3, pady = 20)
             
             conn = sql.connect("application data/database.db")
@@ -932,40 +954,57 @@ class HistoryPage(tk.Frame):
                 count += 1
     
     # Create function which creates the widgets for creation and editing of user history
-    def create_edit_history(self, master):
+    def create_edit_history(self, master, history_creation = False):
         # Widgets for viewing history could be present when this function is called
-        # Make them invisible 
+        # Make them invisible
+        self.movie_ID_entry_label.grid_forget()
+        self.movie_ID_text_entry.grid_forget()
         self.edit_history_button.grid_forget()
+        self.delete_movie_button.grid_forget()
         self.train_NeuMF_button.grid_forget()
         self.tree_frame.grid_forget()
         
-        info_label = tk.Label(self,
-                                  text = "Scroll through the films below until you see a movie you have watched. Type the movie\n" +
-                                  "ID into the text box and click 'Add Movie'. Repeat this process until you have added\n" +
-                                  "at least 20 movies. The counter below keeps track of how many you have added so far.\n" +
-                                  "Make sure that you click 'Finish' once you have selected at least 20 movies. As a\n" +
-                                  "final note, if you reach the bottom of the movies list and have not added at least\n" +
-                                  "20, you can simply click the 'History' button at the top to refresh the list.")
-            
-        info_label.grid(row = 1, column = 2, columnspan = 3, pady = 20)
+        if not history_creation:   
+            info_label = tk.Label(self,
+                                      text = "Scroll through the films below until you see a movie you have watched. Type the ID " +
+                                      "into the text box and click 'Add Movie'. You can search for general or specific titles with " +
+                                      "the 'Search Movie' button and movie title text box. The counter below keeps track of how many you have added so far. " +
+                                      "Make sure that you click 'Finish' once you have selected at least 20 movies. As a " +
+                                      "final note, if you reach the bottom of the movies list and have not added at least " +
+                                      "20, you can simply click the 'History' button at the top to refresh the list.",
+                                      wraplength = round(WINDOW_WIDTH/2))
+                
+            info_label.grid(row = 1, column = 2, columnspan = 3, pady = 20)
         
         # Create label and text entry box for movie IDs
         movie_ID_entry_label = tk.Label(self, text = "Movie ID")
-        movie_ID_entry_label.grid(row = 2, column = 2, columnspan = 2, pady = 15)
+        movie_ID_entry_label.grid(row = 2, column = 2, columnspan = 2, pady = (15, 5))
         self.movie_ID_text_entry = tk.Entry(self, width = 20)
-        self.movie_ID_text_entry.grid(row = 2, column = 3, columnspan = 2, pady = 15)
+        self.movie_ID_text_entry.grid(row = 2, column = 3, columnspan = 2, pady = (15, 5))
+        
+        # Create label and text entry box for searching movie titles
+        movie_title_entry_label = tk.Label(self, text = "Movie Title")
+        movie_title_entry_label.grid(row = 3, column = 2, columnspan = 2, pady = (5, 15))
+        self.movie_title_text_entry = tk.Entry(self, width = 20)
+        self.movie_title_text_entry.grid(row = 3, column = 3, columnspan = 2, pady = (5, 15))
+        
+        # Create button for searching a movie title and opening new window with treeview of search results
+        search_movie_button = tk.Button(self, text = "Search Movie", width = 20, borderwidth = BTN_BORD_WIDTH,
+                                     bg = "grey", font = master.button_font,
+                                     command = lambda: self.search_title(master))
+        search_movie_button.grid(row = 4, column = 2, pady = 10)
         
         # Create button for adding a movie to history based on the entered movie ID
         add_movie_button = tk.Button(self, text = "Add Movie", width = 20, borderwidth = BTN_BORD_WIDTH,
                                      bg = "grey", font = master.button_font,
                                      command = lambda: self.add_movie(master))
-        add_movie_button.grid(row = 3, column = 2, columnspan = 2, pady = 10)
+        add_movie_button.grid(row = 4, column = 3, pady = 10)
         
         # Create button for finishing the process of creating a user history
         finish_button = tk.Button(self, text = "Finish", width = 20, borderwidth = BTN_BORD_WIDTH,
                                   bg = "grey", font = master.button_font,
                                   command = lambda: self.finish(master))
-        finish_button.grid(row = 3, column = 3, columnspan = 2, pady = 10)
+        finish_button.grid(row = 4, column = 4, pady = 10)
         
         conn = sql.connect("application data/database.db")
         c = conn.cursor()
@@ -978,7 +1017,7 @@ class HistoryPage(tk.Frame):
         
         # Create a frame to pack a Treeview widget into
         tree_frame = tk.Frame(self, width = 1000, height = round(WINDOW_HEIGHT/2))
-        tree_frame.grid(row = 4, column = 0, columnspan = 6, pady = 15)
+        tree_frame.grid(row = 5, column = 0, columnspan = 6, pady = 15)
         
         # Create a scrollbar for the frame
         tree_scroll = tk.Scrollbar(tree_frame)
@@ -1020,8 +1059,122 @@ class HistoryPage(tk.Frame):
         
         # Create label below treeview box which tells user how many movies they have added so far
         self.movie_count_label = tk.Label(self, text = "Movies added: {}/20".format(len(records)))
-        self.movie_count_label.grid(row = 5, column = 4, columnspan = 2, padx = (70, 0))        
-           
+        self.movie_count_label.grid(row = 6, column = 4, columnspan = 2, padx = (70, 0)) 
+        
+    # Create function for deleting a movie from user history    
+    def delete_movie(self, master):
+        movie_ID = self.movie_ID_text_entry.get()
+        
+        if movie_ID == "":
+            messagebox.showerror(title = "Invalid Movie ID", message = "You did not enter a movie ID!")
+            return
+        
+        conn = sql.connect("application data/database.db")
+        c = conn.cursor()
+        
+        # Check if movie is in history
+        c.execute("SELECT * FROM user_history WHERE username = ? AND movie_ID = ?",
+                  (master.username, int(movie_ID)))
+        records = c.fetchall()
+        if len(records) == 0:
+            messagebox.showerror(title = "Invalid Movie ID", 
+                                 message = "That movie is not in your history!")
+            
+            conn.close()
+            return
+        
+        # Check if entered movie ID exists in records
+        c.execute("SELECT * FROM movie_info WHERE movie_ID = ?", (int(movie_ID),))
+        records = c.fetchall()
+        if len(records) == 0:
+            messagebox.showerror(title = "Invalid Movie ID",
+                                 message = "That movie ID does not exist in our records!")
+            
+            conn.close()
+            return
+        
+        c.execute("SELECT title FROM movie_info WHERE movie_ID = ?", (int(movie_ID),))
+        movie_title = c.fetchall()[0][0]
+        
+        # Display selected movie in messagebox and ask user if they are sure they want to add it
+        decision = messagebox.askquestion(title = "Movie Selected",
+                                          message = "You have decided to delete '" + movie_title + "' from your history. " +
+                                          "Is this correct?")
+        if decision == "yes":
+            c.execute("DELETE FROM user_history WHERE user_ID = ? AND movie_ID = ?", (master.user_ID, int(movie_ID)))
+            c.execute("DELETE FROM train_set WHERE user_ID = ? AND movie_ID = ?", (master.user_ID, int(movie_ID)))
+            conn.commit()
+            conn.close()
+            
+            master.change_frame(HistoryPage)
+            
+        else:
+            return
+    
+    # Create function for searching movie_info table for titles equal or similar to entered title
+    # New window created with search results in treeview widget
+    def search_title(self, master):
+        movie_title = self.movie_title_text_entry.get()
+        
+        if movie_title == "":
+            messagebox.showerror(title = "Invalid Movie Title", message = "You did not enter a movie title!")
+            return
+        
+        results_window = tk.Toplevel(master)
+        results_window.title("Search Results")
+        results_window.geometry(str(WINDOW_WIDTH) + "x" + str(round(WINDOW_HEIGHT/2)))
+        
+        info_label = tk.Label(results_window, text = "Here are the results we found for '" + movie_title + "'.")
+        info_label.grid(row = 0, column = 0, columnspan = 2, padx = 60, pady = 15)
+        
+        conn = sql.connect("application data/database.db")
+        c = conn.cursor()
+        
+        # Use 'LIKE' operator to find movie titles equal or similar to entered title
+        c.execute("""SELECT title, genre, year, movie_ID FROM movie_info
+                     WHERE title LIKE ?""", ("%" + movie_title + "%",))
+                     
+        records = c.fetchall()
+        conn.close()
+        
+        # Create a frame to pack a Treeview widget into
+        tree_frame = tk.Frame(results_window, width = 1000, height = round(WINDOW_HEIGHT/2))
+        tree_frame.grid(row = 1, column = 0, columnspan = 2, padx = 60, pady = 15)
+        
+        # Create a scrollbar for the frame
+        tree_scroll = tk.Scrollbar(tree_frame)
+        tree_scroll.pack(side = tk.RIGHT, fill = tk.Y)
+        
+        # Create a Treeview widget for displaying movie search results
+        
+        movies_tree = ttk.Treeview(tree_frame, yscrollcommand = tree_scroll.set)
+        movies_tree.pack()
+        
+        tree_scroll.config(command = movies_tree.yview)
+        
+        movies_tree["columns"] = ("Title", "Genre", "Year", "Movie ID")
+        
+        movies_tree.column("#0", width = 0, minwidth = 0)
+        movies_tree.column("Title", anchor = "w", width = 450)
+        movies_tree.column("Genre", anchor = "w", width = 350)
+        movies_tree.column("Year", anchor = tk.CENTER, width = 100)
+        movies_tree.column("Movie ID", anchor = tk.CENTER, width = 100)
+        
+        movies_tree.heading("#0", text = "")
+        movies_tree.heading("Title", text = "Title", anchor = tk.CENTER)
+        movies_tree.heading("Genre", text = "Genre", anchor = tk.CENTER)
+        movies_tree.heading("Year", text = "Year", anchor = tk.CENTER)
+        movies_tree.heading("Movie ID", text = "Movie ID", anchor = tk.CENTER)
+        
+        count = 0
+        for record in records:
+            movies_tree.insert(parent = "", index = "end", iid = count, text = "",
+                                    values = (record[0], record[1], record[2], record[3]))
+            count += 1
+            
+        return    
+             
+        
     # Create function for adding a movie to user history after movie ID has been entered and add button has been clicked    
     def add_movie(self, master):
         movie_ID = self.movie_ID_text_entry.get()
@@ -1076,7 +1229,7 @@ class HistoryPage(tk.Frame):
             
             # Update the movie count
             self.movie_count_label = tk.Label(self, text = "Movies added: {}/20".format(len(records)))
-            self.movie_count_label.grid(row = 5, column = 4, columnspan = 2, padx = (70, 0))
+            self.movie_count_label.grid(row = 6, column = 4, columnspan = 2, padx = (70, 0))
             
             # Delete text from ID entry box
             self.movie_ID_text_entry.delete(0, tk.END)
@@ -1206,8 +1359,8 @@ class HistoryPage(tk.Frame):
         conn.close()
         
         # Create label widget to inform user that training has finished
-        finished_label = tk.Label(self, text = "Training has finished! You can now head to 'Recommend' and see what\n" +
-                                  "we think you will like.")
+        finished_label = tk.Label(self, text = "Training has finished! You can now head to 'Recommend' and see what " +
+                                  "we think you will like.", wraplength = round(WINDOW_WIDTH/2))
         finished_label.grid(row = 4, column = 2, columnspan = 3, pady = 15)
         return
         
@@ -1248,36 +1401,56 @@ class RecommendPage(tk.Frame):
         logout_button.grid(row = 0, column = 5, padx = MENU_BTN_PADX, pady = MENU_BTN_PADY)
         
         # Create info for user
-        info_label = tk.Label(self, text = "The 'Recommend Movies' button creates a random selection of 100 movies from\n" +
-                              "from our database. The trained NeuMF network then ranks these movies, for your user ID,\n" +
-                              "based on its confidence that you'll watch a given movie. The 10 movies it thinks you are\n" +
-                              "most likely to watch will be displayed below. To add a movie to your bucket list, type the\n" +
-                              "corresponding movie ID into the text box and click 'Save Recommendation'.")
+        info_label = tk.Label(self, text = "The 'Recommend Movies' button creates a random selection of 100 movies " +
+                              "from our database. The trained NeuMF network then ranks these movies, for your user ID, " +
+                              "based on its confidence that you'll watch a given movie. The 10 movies it thinks you are " +
+                              "most likely to watch will be displayed below. More detailed information can be displayed " +
+                              "for a given movie by entering its ID and clicking 'Movie Info'. You can choose whether or " +
+                              "not to add the movie to your bucket list with 'Save Recommendation'.",
+                              wraplength = round(WINDOW_WIDTH/2))
         info_label.grid(row = 1, column = 2, columnspan = 3, pady = 15)
+        
+        # Create dropdown menu for choosing genre
+        genre_label = tk.Label(self, text = "Genre")
+        genre_label.grid(row = 2, column = 2, columnspan = 2, pady = (15, 5))
+        self.genre = tk.StringVar()
+        self.genre.set("Any Genre")
+        genre_dropdown = tk.OptionMenu(self, self.genre, "Any Genre", "Action", "Adventure", "Animation",
+                                       "Children", "Comedy", "Crime", "Documentary", "Drama", "Fantasy",
+                                       "Horror", "Mystery", "Romance", "Sci-Fi", "Thriller", "War",
+                                       "Western")
+        genre_dropdown.config(width = 14)
+        genre_dropdown.grid(row = 2, column = 3, columnspan = 2, pady = (15, 5))
         
         # Create label and text entry box for movie IDs
         movie_ID_entry_label = tk.Label(self, text = "Movie ID")
-        movie_ID_entry_label.grid(row = 2, column = 2, columnspan = 2, pady = 15)
+        movie_ID_entry_label.grid(row = 3, column = 2, columnspan = 2, pady = (5, 15))
         self.movie_ID_text_entry = tk.Entry(self, width = 20)
-        self.movie_ID_text_entry.grid(row = 2, column = 3, columnspan = 2, pady = 15)
+        self.movie_ID_text_entry.grid(row = 3, column = 3, columnspan = 2, pady = (5, 15))
         
         
         # Create button for movie recommendations
         recommend_movies_button = tk.Button(self, text = "Recommend Movies", borderwidth = BTN_BORD_WIDTH, width = 20,
                                        bg = "grey", font = master.button_font,
                                        command = lambda: self.recommend(master))
-        recommend_movies_button.grid(row = 3, column = 2, columnspan = 2, pady = 15)
+        recommend_movies_button.grid(row = 4, column = 2, pady = 15)
+        
+        # Create button for viewing more detailed information for a given movie ID
+        recommend_movies_button = tk.Button(self, text = "Movie Info", borderwidth = BTN_BORD_WIDTH, width = 20,
+                                       bg = "grey", font = master.button_font,
+                                       command = lambda: self.movie_info(master))
+        recommend_movies_button.grid(row = 4, column = 3, pady = 15)
         
         # Create button for adding a movie recommendation to the bucket list
         save_recommendation_button = tk.Button(self, text = "Save Recommendation",
                                                borderwidth = BTN_BORD_WIDTH, width = 20,
                                                bg = "grey", font = master.button_font,
                                                command = lambda: self.save_recommendation(master))
-        save_recommendation_button.grid(row = 3, column = 3, columnspan = 2, pady = 15)
+        save_recommendation_button.grid(row = 4, column = 4, pady = 15)
         
         # Create a frame to pack a Treeview widget into
         tree_frame = tk.Frame(self, width = 1000, height = round(WINDOW_HEIGHT/2))
-        tree_frame.grid(row = 4, column = 0, columnspan = 6, pady = 15)
+        tree_frame.grid(row = 5, column = 0, columnspan = 6, pady = 15)
         
         # Create a scrollbar for the frame
         tree_scroll = tk.Scrollbar(tree_frame)
@@ -1317,20 +1490,18 @@ class RecommendPage(tk.Frame):
         # Store the train_set movie IDs for the current user in a list
         conn = sql.connect("application data/database.db")
         c = conn.cursor()
-        c.execute("SELECT movie_ID FROM train_set WHERE user_ID = ?", (master.user_ID,))
-        movie_IDs = [ID[0] for ID in c.fetchall()]
         
-        # Randomly select 100 movie IDs which are not in this user's train_set
-        movie_IDs_100 = []
-        for i in range(0, 100):
-           c.execute("SELECT movie_ID FROM movie_info ORDER BY RANDOM() LIMIT 1") 
-           rand_movie_ID = c.fetchall()[0][0]
-           while rand_movie_ID in movie_IDs:
-               c.execute("SELECT movie_ID FROM movie_info ORDER BY RANDOM() LIMIT 1") 
-               rand_movie_ID = c.fetchall()[0][0]
-               
-           movie_IDs_100.append(rand_movie_ID)    
-        
+        if self.genre.get() == "Any Genre":
+            c.execute("""SELECT movie_ID FROM movie_info
+                      WHERE movie_ID NOT IN (SELECT movie_ID FROM train_set WHERE user_ID = ?)
+                      ORDER BY RANDOM() LIMIT 100""", (master.user_ID,))
+        else:
+            c.execute("""SELECT movie_ID FROM movie_info
+                      WHERE movie_ID NOT IN (SELECT movie_ID FROM train_set WHERE user_ID = ?)
+                      AND genre LIKE ?
+                      ORDER BY RANDOM() LIMIT 100""", (master.user_ID, "%" + self.genre.get() + "%"))
+                     
+        movie_IDs_100 = [record[0] for record in c.fetchall()]  
         conn.close()
            
         # Encode user_ID and movie_IDs with the scheme used for training
@@ -1365,6 +1536,94 @@ class RecommendPage(tk.Frame):
         
         conn.close()
         return
+    
+    def movie_info(self, master):
+        movie_ID = self.movie_ID_text_entry.get()
+        
+        if movie_ID == "":
+            messagebox.showerror(title = "Invalid Movie ID", message = "You did not enter a movie ID!")
+            return
+        
+        movie_info_window = tk.Toplevel(master)
+        movie_info_window.title("Movie Info")
+        movie_info_window.geometry(str(round(WINDOW_WIDTH * 7/12)) + "x" + str(round(WINDOW_HEIGHT * 4/3)))
+        
+        conn = sql.connect("application data/database.db")
+        c = conn.cursor()
+        
+        c.execute("SELECT IMDb_ID, genre FROM movie_info WHERE movie_ID = ?", (movie_ID,))
+        record = c.fetchall()
+        IMDb_ID = str(record[0][0])
+        genres_string = str(record[0][1])
+        
+        while len(IMDb_ID) < 7:
+            IMDb_ID = "0" + IMDb_ID
+        
+        IMDb_ID = "tt" + IMDb_ID    
+        
+        url = "https://imdb8.p.rapidapi.com/title/get-overview-details"
+
+        querystring = {"tconst":IMDb_ID,"currentCountry":"GB"}
+        
+        headers = {
+            'x-rapidapi-key': RAPID_API_KEY,
+            'x-rapidapi-host': "imdb8.p.rapidapi.com"
+            }
+        
+        response = requests.get(url, headers=headers, params=querystring)
+        
+        movie_info = response.json()
+        
+        image_url = movie_info["title"]["image"]["url"]
+        
+        self.movie_poster = Image.open(requests.get(image_url, stream=True).raw).resize((340, 503))
+        self.movie_poster = ImageTk.PhotoImage(self.movie_poster)
+        
+        image_label = tk.Label(movie_info_window, image = self.movie_poster)
+        image_label.grid(row = 0, column = 0, columnspan = 2, pady = (10, 15))
+        
+        X_PADDING_L = (45, 40)
+        X_PADDING_R = (40, 25)
+        
+        title_label = tk.Label(movie_info_window, text = "Title", font = master.button_font)
+        title_label.grid(row = 1, column = 0, padx = X_PADDING_L, pady = (15, 10))
+        title = tk.Label(movie_info_window, text = movie_info["title"]["title"])
+        title.grid(row = 1, column = 1, padx = X_PADDING_R, pady = (15, 10))
+        
+        genres_label = tk.Label(movie_info_window, text = "Genre", font = master.button_font)
+        genres_label.grid(row = 2, column = 0, padx = X_PADDING_L, pady = 10)
+        genres = tk.Label(movie_info_window, text = genres_string, wraplength = round(WINDOW_WIDTH/4))
+        genres.grid(row = 2, column = 1, padx = X_PADDING_R, pady = 10)
+        
+        year_label = tk.Label(movie_info_window, text = "Year", font = master.button_font)
+        year_label.grid(row = 3, column = 0, padx = X_PADDING_L, pady = 10)
+        year = tk.Label(movie_info_window, text = movie_info["title"]["year"])
+        year.grid(row = 3, column = 1, padx = X_PADDING_R, pady = 10)
+        
+        runtime_label = tk.Label(movie_info_window, text = "Runtime (mins)", font = master.button_font)
+        runtime_label.grid(row = 4, column = 0, padx = X_PADDING_L, pady = 10)
+        runtime = tk.Label(movie_info_window, text = movie_info["title"]["runningTimeInMinutes"])
+        runtime.grid(row = 4, column = 1, padx = X_PADDING_R, pady = 10)
+        
+        rating_label = tk.Label(movie_info_window, text = "IMDb Rating", font = master.button_font)
+        rating_label.grid(row = 5, column = 0, padx = X_PADDING_L, pady = 10)
+        rating = tk.Label(movie_info_window, text = "{}/10 ({})".format(movie_info["ratings"]["rating"],
+                       movie_info["ratings"]["ratingCount"]))
+        rating.grid(row = 5, column = 1, padx = X_PADDING_R, pady = 10)
+        
+        plot_label = tk.Label(movie_info_window, text = "Plot Summary", font = master.button_font)
+        plot_label.grid(row = 6, column = 0, padx = X_PADDING_L, pady = 15)
+        plot_frame = tk.Frame(movie_info_window, width = round(WINDOW_WIDTH/3),
+                              height = round(WINDOW_HEIGHT * 4/27))
+        plot_frame.grid(row = 6, column = 1, padx = X_PADDING_R, pady = 15)
+        plot_frame.pack_propagate(0) # Stops child widgets of label_frame from resizing it
+        plot = tk.Label(plot_frame, text = movie_info["plotOutline"]["text"],
+                        wraplength = round(WINDOW_WIDTH/3))
+        plot.pack(expand=True, fill='both')
+        
+        movie_info_window.grid_columnconfigure(0, weight = 1)
+        movie_info_window.grid_columnconfigure(1, weight = 1)
+        
     
     def save_recommendation(self, master):
         if master.trained == 0:
